@@ -1,13 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const parse = vi.fn();
-vi.mock("@anthropic-ai/sdk", () => ({
-  default: class {
-    beta = { messages: { parse } };
-  },
-}));
+import type Anthropic from "@anthropic-ai/sdk";
+import { AiError, beatHelper, beatPoints, clientFor, helperActions, LENSES, renderBeats, storyCoach, suggestSections, visualIdeas } from "./ai.ts";
 
-const { AiError, beatHelper, beatPoints, helperActions, renderBeats, storyCoach, suggestSections, visualIdeas, LENSES } = await import("./ai.ts");
+const parse = vi.fn();
+const client = { beta: { messages: { parse } } } as unknown as Anthropic;
 
 const ok = (parsed_output: unknown) => ({ stop_reason: "end_turn", parsed_output });
 const lastRequest = () => parse.mock.calls.at(-1)![0];
@@ -17,7 +14,7 @@ beforeEach(() => parse.mockReset());
 describe("structured requests", () => {
   it("sends the cached system prompt, server-side fallback and effort", async () => {
     parse.mockResolvedValue(ok({ replacement: "x", rationale: "y" }));
-    await beatHelper({ action: "tighten", selection: "s", before: "", after: "" });
+    await beatHelper(client, { action: "tighten", selection: "s", before: "", after: "" });
     const req = lastRequest();
     expect(req.betas).toContain("server-side-fallback-2026-07-01");
     expect(req.fallbacks).toBe("default");
@@ -30,21 +27,21 @@ describe("structured requests", () => {
 
   it("maps a refusal to a 422 AiError", async () => {
     parse.mockResolvedValue({ stop_reason: "refusal", parsed_output: null });
-    const err = await beatHelper({ action: "tighten", selection: "s", before: "", after: "" }).catch((e) => e);
+    const err = await beatHelper(client, { action: "tighten", selection: "s", before: "", after: "" }).catch((e) => e);
     expect(err).toBeInstanceOf(AiError);
     expect(err.status).toBe(422);
   });
 
   it("errors when no structured output comes back", async () => {
     parse.mockResolvedValue({ stop_reason: "max_tokens", parsed_output: null });
-    await expect(beatPoints({ beats: [], context: [] })).rejects.toThrow(/max_tokens/);
+    await expect(beatPoints(client, { beats: [], context: [] })).rejects.toThrow(/max_tokens/);
   });
 });
 
 describe("beatHelper", () => {
   it("uses the fast model and puts the selection between its context", async () => {
     parse.mockResolvedValue(ok({ replacement: "r", rationale: "why" }));
-    const res = await beatHelper({ action: "spoken", selection: "SELECTED", before: "BEFORE", after: "AFTER" });
+    const res = await beatHelper(client, { action: "spoken", selection: "SELECTED", before: "BEFORE", after: "AFTER" });
     expect(res).toEqual({ replacement: "r", rationale: "why" });
     const req = lastRequest();
     expect(req.model).toBe("claude-sonnet-5-5");
@@ -56,19 +53,19 @@ describe("beatHelper", () => {
   it("supports the dictation tidy action", async () => {
     expect(helperActions).toContain("tidy");
     parse.mockResolvedValue(ok({ replacement: "r", rationale: "why" }));
-    await beatHelper({ action: "tidy", selection: "so um yeah", before: "", after: "" });
+    await beatHelper(client, { action: "tidy", selection: "so um yeah", before: "", after: "" });
     expect(lastRequest().messages[0].content).toMatch(/dictation/i);
     expect(lastRequest().messages[0].content).toMatch(/blank line between paragraphs/);
   });
 
   it("passes a custom instruction through", async () => {
     parse.mockResolvedValue(ok({ replacement: "r", rationale: "why" }));
-    await beatHelper({ action: "custom", instruction: "add a pirate voice", selection: "s", before: "", after: "" });
+    await beatHelper(client, { action: "custom", instruction: "add a pirate voice", selection: "s", before: "", after: "" });
     expect(lastRequest().messages[0].content).toMatch(/Task: add a pirate voice/);
   });
 
   it("rejects unknown actions without calling the API", async () => {
-    const err = await beatHelper({ action: "nope", selection: "s", before: "", after: "" }).catch((e) => e);
+    const err = await beatHelper(client, { action: "nope", selection: "s", before: "", after: "" }).catch((e) => e);
     expect(err.status).toBe(400);
     expect(parse).not.toHaveBeenCalled();
   });
@@ -82,30 +79,38 @@ describe("other helpers", () => {
 
   it("suggestSections uses the deep model", async () => {
     parse.mockResolvedValue(ok({ sections: [], rationale: "" }));
-    await suggestSections({ beats });
+    await suggestSections(client, { beats });
     expect(lastRequest().model).toBe("claude-opus-5-5");
     expect(lastRequest().output_config.effort).toBe("medium");
   });
 
   it("storyCoach applies the chosen lens and audience, falling back to no lens", async () => {
     parse.mockResolvedValue(ok({ summary: "", throughline: "", strengths: [], issues: [] }));
-    await storyCoach({ beats, lens: "scr", audience: "nurses" });
+    await storyCoach(client, { beats, lens: "scr", audience: "nurses" });
     expect(lastRequest().system[0].text).toContain(LENSES.scr);
     expect(lastRequest().messages[0].content).toMatch(/Intended audience: nurses/);
-    await storyCoach({ beats, lens: "bogus" });
+    await storyCoach(client, { beats, lens: "bogus" });
     expect(lastRequest().system[0].text).toContain(LENSES.none);
   });
 
   it("beatPoints asks only for the requested ids", async () => {
     parse.mockResolvedValue(ok({ points: [] }));
-    await beatPoints({ beats: [beats[0]], context: beats });
+    await beatPoints(client, { beats: [beats[0]], context: beats });
     expect(lastRequest().messages[0].content).toMatch(/beat ids only: b1$/);
   });
 
   it("visualIdeas includes passage and context", async () => {
     parse.mockResolvedValue(ok({ ideas: [] }));
-    await visualIdeas({ passage: "the pump", context: "cholera" });
+    await visualIdeas(client, { passage: "the pump", context: "cholera" });
     expect(lastRequest().messages[0].content).toMatch(/<passage>\nthe pump\n<\/passage>/);
+  });
+});
+
+describe("clientFor", () => {
+  it("reuses one SDK client per API key", () => {
+    expect(clientFor("sk-ant-a")).toBe(clientFor("sk-ant-a"));
+    expect(clientFor("sk-ant-a")).not.toBe(clientFor("sk-ant-b"));
+    expect(clientFor("sk-ant-b").apiKey).toBe("sk-ant-b");
   });
 });
 

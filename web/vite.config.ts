@@ -5,6 +5,7 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   server: {
-    proxy: { '/api': 'http://localhost:8787' },
+    // Keep the browser's Host header: the API checks it against Origin and builds sign-in callback URLs from it.
+    proxy: { '/api': { target: 'http://localhost:8787', changeOrigin: false } },
   },
 })

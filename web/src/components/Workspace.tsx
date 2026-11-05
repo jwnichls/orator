@@ -20,7 +20,7 @@ export interface Target {
 
 const MIN_WORDS_FOR_POINT = 8;
 
-export function Workspace({ talkId, onClose }: { talkId: string; onClose: () => void }) {
+export function Workspace({ talkId, onClose, aiAvailable }: { talkId: string; onClose: () => void; aiAvailable: boolean }) {
   const [talk, setTalk] = useState<Talk | null | undefined>(undefined);
 
   useEffect(() => {
@@ -34,21 +34,16 @@ export function Workspace({ talkId, onClose }: { talkId: string; onClose: () => 
         Talk not found. <button onClick={onClose}>Back</button>
       </div>
     );
-  return <LoadedWorkspace initial={talk} onClose={onClose} />;
+  return <LoadedWorkspace initial={talk} onClose={onClose} aiAvailable={aiAvailable} />;
 }
 
-function LoadedWorkspace({ initial, onClose }: { initial: Talk; onClose: () => void }) {
+function LoadedWorkspace({ initial, onClose, aiAvailable }: { initial: Talk; onClose: () => void; aiAvailable: boolean }) {
   const [talk, setTalk] = useState(initial);
-  const [aiAvailable, setAiAvailable] = useState(false);
   const [liveOutline, setLiveOutline] = useState(true);
   const [target, setTarget] = useState<Target | null>(null);
   const [rightTab, setRightTab] = useState<"find" | "gathered">("gathered");
   const [cursorClipIds, setCursorClipIds] = useState<string[]>([]);
   const [status, setStatus] = useState<string | null>(null);
-
-  useEffect(() => {
-    api.health().then((h) => setAiAvailable(h.ai)).catch(() => setAiAvailable(false));
-  }, []);
 
   const editor = useEditor({
     extensions: scriptExtensions(),
@@ -192,13 +187,16 @@ function LoadedWorkspace({ initial, onClose }: { initial: Talk; onClose: () => v
         <div className="spacer" />
         {status && <span className="status small">{status}</span>}
         {!aiAvailable && (
-          <span className="warn small" title="Set ANTHROPIC_API_KEY on the server and restart it">
-            AI offline
-          </span>
+          <a className="warn small" href="#/account" title="AI features use your own Anthropic API key">
+            Add your API key to use AI
+          </a>
         )}
         <button onClick={onExport} title="Export a self-contained bundle (script + all images) for offline use">
           Export .orator
         </button>
+        <a className="ghost account-link" href="#/account" title="Account">
+          Account
+        </a>
       </header>
       <div className="panes">
         <LeftPane

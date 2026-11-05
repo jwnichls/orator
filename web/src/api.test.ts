@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "./api";
+import { api, ApiError, SIGNED_OUT_EVENT } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -28,6 +28,32 @@ describe("api client", () => {
     await api.searchImages("snow & cholera");
     expect(fetchMock).toHaveBeenCalledWith("/api/images/search?q=snow%20%26%20cholera");
     vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 500 })));
-    await expect(api.searchImages("x")).rejects.toThrow("Search failed (500)");
+    await expect(api.searchImages("x")).rejects.toThrow("Request failed (500)");
+  });
+
+  it("exposes error codes and announces when the session is gone", async () => {
+    const onSignedOut = vi.fn();
+    window.addEventListener(SIGNED_OUT_EVENT, onSignedOut);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Please sign in.", code: "signed_out" }, { status: 401 })));
+    const err = await api.helper({ action: "tidy", selection: "", before: "", after: "" }).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 401, code: "signed_out" });
+    expect(onSignedOut).toHaveBeenCalledTimes(1);
+
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Add your key", code: "no_key" }, { status: 403 })));
+    expect(await api.points({ beats: [], context: [] }).catch((e) => e.code)).toBe("no_key");
+    expect(onSignedOut).toHaveBeenCalledTimes(1);
+    window.removeEventListener(SIGNED_OUT_EVENT, onSignedOut);
+  });
+
+  it("reads and updates the account", async () => {
+    const user = { id: "u", hasAnthropicKey: true };
+    const fetchMock = vi.fn(async () => Response.json({ user }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await api.me()).toEqual(user);
+    expect(await api.setAnthropicKey("sk-ant-x")).toEqual(user);
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/me/anthropic-key", expect.objectContaining({ method: "PUT", body: JSON.stringify({ key: "sk-ant-x" }) }));
+    await api.removeAnthropicKey();
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/me/anthropic-key", expect.objectContaining({ method: "DELETE" }));
   });
 });

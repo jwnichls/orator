@@ -7,7 +7,6 @@ import { getTalk, newTalk, saveTalk } from "../model/store";
 import type { Talk } from "../model/types";
 
 const api = vi.hoisted(() => ({
-  health: vi.fn(),
   points: vi.fn(),
   lenses: vi.fn(),
   visualIdeas: vi.fn(),
@@ -21,16 +20,15 @@ const LONG = "In eighteen fifty four cholera swept through the streets of Soho."
 
 beforeEach(() => {
   for (const f of Object.values(api)) f.mockReset();
-  api.health.mockResolvedValue({ ok: true, ai: true });
   api.lenses.mockResolvedValue({});
   api.points.mockResolvedValue({ points: [] });
 });
 afterEach(() => vi.restoreAllMocks());
 
-async function open(talk: Talk) {
+async function open(talk: Talk, aiAvailable = true) {
   await saveTalk(talk);
   const onClose = vi.fn();
-  render(<Workspace talkId={talk.id} onClose={onClose} />);
+  render(<Workspace talkId={talk.id} onClose={onClose} aiAvailable={aiAvailable} />);
   await screen.findByLabelText("Talk title");
   const editor = document.querySelector<HTMLElement>(".ProseMirror")!;
   return { onClose, editor };
@@ -45,7 +43,7 @@ describe("Workspace", () => {
 
   it("says so when the talk doesn't exist", async () => {
     const onClose = vi.fn();
-    render(<Workspace talkId="nope" onClose={onClose} />);
+    render(<Workspace talkId="nope" onClose={onClose} aiAvailable />);
     fireEvent.click(await screen.findByRole("button", { name: "Back" }));
     expect(onClose).toHaveBeenCalled();
   });
@@ -57,10 +55,10 @@ describe("Workspace", () => {
     await waitFor(async () => expect((await getTalk(talk.id))?.title).toBe("The Ghost Map"), { timeout: 2000 });
   });
 
-  it("flags AI as offline", async () => {
-    api.health.mockResolvedValue({ ok: true, ai: false });
-    await open(newTalk());
-    expect(await screen.findByText("AI offline")).toBeTruthy();
+  it("points to the account page when the user has no API key", async () => {
+    await open(newTalk(), false);
+    expect(screen.getByRole("link", { name: /Add your API key/ }).getAttribute("href")).toBe("#/account");
+    expect(api.points).not.toHaveBeenCalled();
   });
 
   it("generates live outline points for long-enough beats and saves them", async () => {
@@ -75,8 +73,7 @@ describe("Workspace", () => {
 
   it("anchors an uploaded image to the targeted passage", async () => {
     const talk = { ...newTalk(), doc: doc(p("b1", "The Broad Street pump.")) };
-    api.health.mockResolvedValue({ ok: true, ai: false });
-    const { editor } = await open(talk);
+    const { editor } = await open(talk, false);
     // Put the cursor in the paragraph and target it for images.
     const textNode = editor.querySelector("p")!.firstChild!;
     act(() => {

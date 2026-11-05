@@ -7,7 +7,12 @@ import { afterEach } from "vitest";
 // jsdom's Blob can't be structured-cloned into (fake) IndexedDB or read by Node's Response; browsers have one Blob.
 globalThis.Blob = NodeBlob as unknown as typeof Blob;
 
+import { setStoreUser } from "../src/model/store";
+
 afterEach(() => cleanup());
+
+// Storage is per signed-in user; tests act as one user unless they switch.
+setStoreUser("test-user");
 
 // Tests encode an image's size in its bytes as "WxH" so putAssetBlob can "measure" it.
 globalThis.createImageBitmap = (async (blob: Blob) => {

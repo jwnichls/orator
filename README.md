@@ -14,11 +14,11 @@ Requires Node 26. From the project root:
 
 ```sh
 npm install
-cp .env.example .env   # then add your ANTHROPIC_API_KEY (.env is git-ignored)
+cp .env.example .env   # set DEV_LOGIN_EMAIL (.env is git-ignored)
 npm run dev            # API on :8787, app on http://localhost:5173
 ```
 
-Without a key, writing and image search still work and the AI features are disabled.
+Locally, "Continue as local developer" signs you in without Google/Apple. Add your Anthropic API key on the Account page to turn on the AI features (or use the one-time handover in `.env.example`). Local accounts live in `web/.data` (PGlite, an in-process Postgres).
 
 ## Tests
 
@@ -28,13 +28,14 @@ npm run check         # typecheck + lint + tests, as CI runs them
 npm run test:watch -w web
 ```
 
-- `web/server/*.test.ts`: API routes, error mapping, auth/HTTPS/static serving, Claude request shapes (SDK mocked), image search and the image proxy's private-network guard.
+- `web/server/*.test.ts`: sign-in flows (fake providers) and the Google/Apple adapters (token endpoint stubbed), accounts/sessions/key storage against a real in-memory Postgres (PGlite), API routes and error mapping, HTTPS/static serving, Claude request shapes, image search and the image proxy's private-network guard.
 - `web/src/**/*.test.ts(x)`: derivation, editor extensions, IndexedDB storage and `.orator` bundles (fake-indexeddb), dictation (fake speech recognizer), and components with the API client mocked.
 
 No test calls Claude or the image providers for real.
 
 ## What's in Phase 1
 
+- **Accounts:** sign in with Google or Apple. Each user's own Anthropic API key powers their AI features; it's stored encrypted on the server. Talks stay in the browser, per account. See `docs/deployment.md`.
 - **Script editor:** one paragraph per beat. Sections (§) are optional headings. Asides are optional material.
 - **Dictation:** 🎙 Dictate speaks your script in at the cursor (browser speech recognition; say "new paragraph" to break). Afterwards, "Tidy it up" fixes punctuation, removes filler words and adds paragraph breaks, and comes back as a reviewable diff.
 - **Live outline:** each paragraph gets a one-line point (a reverse outline). "Suggest sections" proposes boundaries from the script.
@@ -45,8 +46,8 @@ No test calls Claude or the image providers for real.
 
 ## Code map (web/)
 
-- `server/`: Hono API. `app.ts` (routes, auth, static serving), `ai.ts` (Claude: structured outputs), `images.ts` (search + byte proxy), `index.ts` (entry point)
+- `server/`: Hono API. `app.ts` (routes, static serving), `auth.ts` (Google/Apple sign-in), `accounts.ts` (users, sessions, stored keys), `db.ts` (Postgres/PGlite + migrations), `secrets.ts` (encryption), `ai.ts` (Claude: structured outputs), `images.ts` (search + byte proxy), `index.ts` (entry point and config)
 - `src/model/`: types, IndexedDB store, bundle export/import, derivation of beats and sections from the editor doc
 - `src/editor/`: TipTap extensions (stable beat ids, asides, `clip` anchor marks), shared commands, dictation
 - `test/`: shared test setup and helpers (editor builder, fake speech recognizer)
-- `src/components/`: Library, Workspace, LeftPane (outline/coach), ScriptEditor, ContentPane (find/gathered)
+- `src/components/`: Login, Account, Library, Workspace, LeftPane (outline/coach), ScriptEditor, ContentPane (find/gathered)

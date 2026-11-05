@@ -2,7 +2,17 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 
-const client = new Anthropic();
+/** A Claude client for one user's API key (cached, since the SDK client keeps a connection pool). */
+const clients = new Map<string, Anthropic>();
+export function clientFor(apiKey: string) {
+  let c = clients.get(apiKey);
+  if (!c) {
+    if (clients.size >= 200) clients.delete(clients.keys().next().value!);
+    c = new Anthropic({ apiKey });
+    clients.set(apiKey, c);
+  }
+  return c;
+}
 
 // Inline helpers favor speed; structural critique favors depth.
 const FAST_MODEL = "claude-sonnet-5-5";
@@ -21,7 +31,7 @@ export class AiError extends Error {
   }
 }
 
-async function structured<T extends z.ZodType>(opts: {
+async function structured<T extends z.ZodType>(client: Anthropic, opts: {
   model: string;
   effort: "low" | "medium" | "high";
   system: string;
@@ -76,10 +86,10 @@ const HelperResult = z.object({
   rationale: z.string().describe("One sentence explaining the change."),
 });
 
-export async function beatHelper(input: { action: string; selection: string; before: string; after: string; instruction?: string }) {
+export async function beatHelper(client: Anthropic, input: { action: string; selection: string; before: string; after: string; instruction?: string }) {
   const instruction = input.action === "custom" ? input.instruction : HELPER_INSTRUCTIONS[input.action];
   if (!instruction) throw new AiError(`Unknown action: ${input.action}`, 400);
-  return structured({
+  return structured(client, {
     model: FAST_MODEL,
     effort: "low",
     system: "You edit one selected passage of a script at a time.",
@@ -94,8 +104,8 @@ const PointsResult = z.object({
   points: z.array(z.object({ id: z.string(), point: z.string().describe("The beat's main point in at most 12 words.") })),
 });
 
-export async function beatPoints(input: { beats: Beat[]; context: Beat[] }) {
-  return structured({
+export async function beatPoints(client: Anthropic, input: { beats: Beat[]; context: Beat[] }) {
+  return structured(client, {
     model: FAST_MODEL,
     effort: "low",
     system: "You produce a reverse outline: for each requested beat, state the single point it makes, in at most 12 words. No preamble like 'The speaker says'.",
@@ -117,8 +127,8 @@ const SectionsResult = z.object({
   rationale: z.string(),
 });
 
-export async function suggestSections(input: { beats: Beat[] }) {
-  return structured({
+export async function suggestSections(client: Anthropic, input: { beats: Beat[] }) {
+  return structured(client, {
     model: DEEP_MODEL,
     effort: "medium",
     system: "You find the natural section boundaries already present in a script. Do not reorder or rewrite. Sections must be in script order and the first must start at the first beat.",
@@ -151,9 +161,9 @@ const CoachResult = z.object({
   ),
 });
 
-export async function storyCoach(input: { beats: Beat[]; lens: string; audience?: string }) {
+export async function storyCoach(client: Anthropic, input: { beats: Beat[]; lens: string; audience?: string }) {
   const lens = LENSES[input.lens] ?? LENSES.none;
-  return structured({
+  return structured(client, {
     model: DEEP_MODEL,
     effort: "high",
     system: `You are a story coach for talks. Critique; do not rewrite. Use the lens below as a way of seeing, not a template the author must follow — note where departures from it are working.
@@ -175,8 +185,8 @@ const VisualIdeasResult = z.object({
   ),
 });
 
-export async function visualIdeas(input: { passage: string; context: string }) {
-  return structured({
+export async function visualIdeas(client: Anthropic, input: { passage: string; context: string }) {
+  return structured(client, {
     model: FAST_MODEL,
     effort: "low",
     system: `You suggest images to show an audience while the speaker says a passage.

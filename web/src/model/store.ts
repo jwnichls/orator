@@ -1,4 +1,4 @@
-import { openDB, type DBSchema } from "idb";
+import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { nanoid } from "nanoid";
 import { SCHEMA_VERSION, type Asset, type AssetSource, type Talk } from "./types";
 
@@ -8,29 +8,73 @@ interface OratorDB extends DBSchema {
   blobs: { key: string; value: Blob };
 }
 
-const dbPromise = openDB<OratorDB>("orator", 1, {
-  upgrade(db) {
-    db.createObjectStore("talks", { keyPath: "id" });
-    db.createObjectStore("assets", { keyPath: "id" });
-    db.createObjectStore("blobs");
-  },
-});
+const open = (name: string) =>
+  openDB<OratorDB>(name, 1, {
+    upgrade(db) {
+      db.createObjectStore("talks", { keyPath: "id" });
+      db.createObjectStore("assets", { keyPath: "id" });
+      db.createObjectStore("blobs");
+    },
+  });
+
+/** Talks saved before accounts existed, in one browser-wide database. */
+const LEGACY_DB = "orator";
+const LEGACY_CLAIMED = "orator:legacy-claimed-by";
+
+let current: { userId: string; db: Promise<IDBPDatabase<OratorDB>> } | null = null;
+
+/**
+ * Point storage at the signed-in user's own database, so people sharing a browser never see each other's talks.
+ * The first account to sign in on a browser gets a copy of any talks saved there before accounts existed.
+ */
+export function setStoreUser(userId: string) {
+  if (current?.userId === userId) return current.db;
+  urlCache.clear();
+  current = { userId, db: open(`orator-${userId}`).then((db) => adoptLegacyTalks(db, userId).then(() => db)) };
+  return current.db;
+}
+
+async function adoptLegacyTalks(db: IDBPDatabase<OratorDB>, userId: string) {
+  if (localStorage.getItem(LEGACY_CLAIMED)) return;
+  const exists = (await indexedDB.databases?.())?.some((d) => d.name === LEGACY_DB) ?? false;
+  if (!exists) return;
+  const legacy = await open(LEGACY_DB);
+  try {
+    const [talks, assets, blobKeys] = await Promise.all([legacy.getAll("talks"), legacy.getAll("assets"), legacy.getAllKeys("blobs")]);
+    const blobs = await Promise.all(blobKeys.map(async (k) => [k, (await legacy.get("blobs", k))!] as const));
+    const tx = db.transaction(["talks", "assets", "blobs"], "readwrite");
+    await Promise.all([
+      ...talks.map((t) => tx.objectStore("talks").put(t)),
+      ...assets.map((a) => tx.objectStore("assets").put(a)),
+      ...blobs.map(([k, b]) => tx.objectStore("blobs").put(b, k)),
+      tx.done,
+    ]);
+    localStorage.setItem(LEGACY_CLAIMED, userId);
+  } finally {
+    legacy.close(); // left in place, not deleted, so nothing is lost if the copy is ever wrong
+  }
+}
+
+const database = () => {
+  if (!current) throw new Error("Storage used before sign-in");
+  return current.db;
+};
 
 export async function listTalks() {
-  const talks = await (await dbPromise).getAll("talks");
+  const talks = await (await database()).getAll("talks");
   return talks.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export async function getTalk(id: string) {
-  return (await dbPromise).get("talks", id);
+  return (await database()).get("talks", id);
 }
 
 export async function saveTalk(talk: Talk) {
-  await (await dbPromise).put("talks", talk);
+  await (await database()).put("talks", talk);
 }
 
 export async function deleteTalk(id: string) {
-  await (await dbPromise).delete("talks", id);
+  await (await database()).delete("talks", id);
 }
 
 export function newTalk(title = "Untitled talk"): Talk {
@@ -62,7 +106,7 @@ async function imageSize(blob: Blob) {
 }
 
 export async function putAssetBlob(blob: Blob, source: AssetSource): Promise<Asset> {
-  const db = await dbPromise;
+  const db = await database();
   const id = await sha256Hex(await blob.arrayBuffer());
   const existing = await db.get("assets", id);
   if (existing) return existing;
@@ -84,11 +128,11 @@ export async function importRemoteImage(url: string, source: AssetSource) {
 }
 
 export async function getAsset(id: string) {
-  return (await dbPromise).get("assets", id);
+  return (await database()).get("assets", id);
 }
 
 export async function getAssetBlob(id: string) {
-  return (await dbPromise).get("blobs", id);
+  return (await database()).get("blobs", id);
 }
 
 const urlCache = new Map<string, Promise<string | undefined>>();

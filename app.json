@@ -2,19 +2,21 @@
   "name": "Orator",
   "description": "Script-first presentation authoring: write what you'll say, gather what they'll see.",
   "buildpacks": [{ "url": "heroku/nodejs" }],
+  "addons": [{ "plan": "heroku-postgresql:essential-0" }],
   "env": {
-    "ANTHROPIC_API_KEY": {
-      "description": "Claude API key used by the server for writing help, outlines, the story coach and image ideas.",
-      "required": true
+    "APP_SECRET": {
+      "description": "Encrypts users' Anthropic API keys at rest. Never change it once users have saved keys (they'd become unreadable).",
+      "generator": "secret"
     },
-    "APP_USERNAME": {
-      "description": "Basic-auth username guarding the whole app (recommended: the server proxies your Claude key).",
-      "required": false
-    },
-    "APP_PASSWORD": {
-      "description": "Basic-auth password; set together with APP_USERNAME.",
-      "required": false
-    }
+    "GOOGLE_CLIENT_ID": { "description": "Google OAuth client ID (Google Cloud Console → Credentials).", "required": false },
+    "GOOGLE_CLIENT_SECRET": { "description": "Google OAuth client secret.", "required": false },
+    "APPLE_CLIENT_ID": { "description": "Sign in with Apple Services ID, e.g. com.orator-ai.web.", "required": false },
+    "APPLE_TEAM_ID": { "description": "Apple Developer Team ID.", "required": false },
+    "APPLE_KEY_ID": { "description": "Key ID of the Sign in with Apple private key.", "required": false },
+    "APPLE_PRIVATE_KEY": { "description": "Contents of the .p8 private key file.", "required": false },
+    "PUBLIC_URL": { "description": "Canonical origin, e.g. https://www.orator-ai.com. Sign-in callback URLs are built from it.", "required": false },
+    "ANTHROPIC_KEY_OWNER_EMAIL": { "description": "Account that receives ANTHROPIC_API_KEY on sign-in (one-time handover).", "required": false },
+    "ANTHROPIC_API_KEY": { "description": "Optional; only used for the one-time handover above. Remove once handed over.", "required": false }
   },
   "formation": {
     "web": { "quantity": 1, "size": "basic" }

@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { importBundle } from "../model/bundle";
 import { deriveStructure, wordCount } from "../model/derive";
 import { deleteTalk, listTalks, newTalk, saveTalk } from "../model/store";
+import type { User } from "../api";
 import type { Talk } from "../model/types";
 
-export function Library({ onOpen }: { onOpen: (id: string) => void }) {
+export function Library({ user, onOpen }: { user: User; onOpen: (id: string) => void }) {
   const [talks, setTalks] = useState<Talk[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -39,7 +40,13 @@ export function Library({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <div className="library">
       <header className="library-header">
-        <h1>Orator</h1>
+        <div className="row between">
+          <h1>Orator</h1>
+          <a className="account-link" href="#/account" title="Account and API key">
+            {user.name ?? user.email ?? "Account"}
+            {!user.hasAnthropicKey && <span className="badge warn">add API key</span>}
+          </a>
+        </div>
         <p className="muted">Write what you'll say. Gather what they'll see.</p>
         <div className="row">
           <button className="primary" onClick={create}>New talk</button>
