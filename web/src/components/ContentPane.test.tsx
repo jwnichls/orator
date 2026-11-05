@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { blockStart, doc, makeEditor, p } from "../../test/editor";
 import { deriveStructure } from "../model/derive";
@@ -72,6 +72,63 @@ describe("Find", () => {
 
     fireEvent.click(ui().getByRole("button", { name: "broad street pump" }));
     await waitFor(() => expect(api.searchImages).toHaveBeenLastCalledWith("broad street pump"));
+  });
+
+  it("shows progress while thinking of ideas and while searching", async () => {
+    let finishIdeas!: (v: unknown) => void;
+    let finishSearch!: (v: unknown) => void;
+    api.visualIdeas.mockReturnValue(new Promise((r) => (finishIdeas = r)));
+    api.searchImages.mockReturnValue(new Promise((r) => (finishSearch = r)));
+    setup({ target });
+
+    expect(ui().getByRole("status").textContent).toMatch(/Thinking about what could support this/);
+    await act(async () => finishIdeas({ ideas: [{ idea: "Snow's map", queries: ["cholera map"] }] }));
+
+    expect(ui().getByRole("status").textContent).toMatch(/Searching Openverse & Wikimedia Commons for “cholera map”/);
+    expect(document.querySelectorAll(".right-pane .grid-item.skeleton")).toHaveLength(6);
+    expect((ui().getByRole("button", { name: "Search" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(ui().queryByText("No results.")).toBeNull();
+
+    await act(async () => finishSearch({ results: [result("1")], errors: [] }));
+    expect(ui().queryByRole("status")).toBeNull();
+    expect(document.querySelector(".right-pane .skeleton")).toBeNull();
+    expect(ui().getAllByRole("img")).toHaveLength(1);
+  });
+
+  it("dims old results during a new search and ignores out-of-order responses", async () => {
+    const pending: Record<string, (v: unknown) => void> = {};
+    api.searchImages.mockImplementation((q: string) => new Promise((r) => (pending[q] = r)));
+    setup({ target, ai: false });
+    const searchFor = (q: string) => {
+      fireEvent.change(ui().getByPlaceholderText(/Search Openverse/), { target: { value: q } });
+      fireEvent.submit(ui().getByPlaceholderText(/Search Openverse/).closest("form")!);
+    };
+
+    searchFor("first");
+    await act(async () => pending.first({ results: [result("a")], errors: [] }));
+    searchFor("slow");
+    expect(document.querySelector(".right-pane .grid")!.className).toBe("grid stale");
+    searchFor("fast");
+    await act(async () => pending.fast({ results: [result("f1"), result("f2")], errors: [] }));
+    await act(async () => pending.slow({ results: [result("s")], errors: [] })); // finishes last; must be ignored
+
+    expect(ui().getAllByRole("img").map((i) => i.getAttribute("alt"))).toEqual(["Image f1", "Image f2"]);
+    expect(document.querySelector(".right-pane .grid")!.className).toBe("grid");
+    expect(ui().queryByRole("status")).toBeNull();
+  });
+
+  it("falls back to the full image when a thumbnail fails, then drops the tile", async () => {
+    api.searchImages.mockResolvedValue({ results: [result("1"), result("2")], errors: [] });
+    setup({ target, ai: false });
+    fireEvent.change(ui().getByPlaceholderText(/Search Openverse/), { target: { value: "map" } });
+    fireEvent.click(ui().getByRole("button", { name: "Search" }));
+    const img = (await ui().findByAltText("Image 1")) as HTMLImageElement;
+    expect(img.src).toBe("https://up/t1.jpg");
+    fireEvent.error(img);
+    expect(img.src).toBe("https://up/1.jpg");
+    fireEvent.error(img);
+    expect(ui().queryByAltText("Image 1")).toBeNull();
+    expect(ui().getAllByRole("img")).toHaveLength(1);
   });
 
   it("without AI, waits for a typed query", async () => {

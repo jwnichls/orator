@@ -52,6 +52,10 @@ function AssetImage({ assetId, className }: { assetId: string; className?: strin
   return url ? <img className={className} src={url} alt="" /> : <div className={`${className} placeholder`} />;
 }
 
+function Spinner() {
+  return <span className="spinner" aria-hidden />;
+}
+
 // ---------------- Find ----------------
 
 function Find({ editor, structure, target, setTarget, aiAvailable, attachAsset, setStatus }: Props) {
@@ -63,19 +67,23 @@ function Find({ editor, structure, target, setTarget, aiAvailable, attachAsset, 
   const [adding, setAdding] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImageResult | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  // Only the latest search may update results; a slow earlier one finishing last must not overwrite them.
+  const searchSeq = useRef(0);
 
   const search = async (q: string) => {
     setQuery(q);
     if (!q.trim()) return;
+    const seq = ++searchSeq.current;
     setSearching(true);
     try {
       const res = await api.searchImages(q);
+      if (seq !== searchSeq.current) return;
       setResults(res.results);
       if (res.errors.length) setStatus(`Some sources failed: ${res.errors.join("; ")}`);
     } catch (e) {
-      setStatus((e as Error).message);
+      if (seq === searchSeq.current) setStatus((e as Error).message);
     } finally {
-      setSearching(false);
+      if (seq === searchSeq.current) setSearching(false);
     }
   };
 
@@ -84,6 +92,8 @@ function Find({ editor, structure, target, setTarget, aiAvailable, attachAsset, 
     setIdeas(null);
     setResults(null);
     setPreview(null);
+    searchSeq.current++; // drop any search still running for the previous passage
+    setSearching(false);
     if (!target) return;
     if (!aiAvailable) return; // without AI the user types their own query
     let cancelled = false;
@@ -174,7 +184,13 @@ function Find({ editor, structure, target, setTarget, aiAvailable, attachAsset, 
 
       {target && (ideasBusy || ideas) && (
         <div className="ideas">
-          <div className="small muted">{ideasBusy ? "Thinking about what could support this…" : "Ideas"}</div>
+          {ideasBusy ? (
+            <div className="loading-row small muted" role="status">
+              <Spinner /> Thinking about what could support this…
+            </div>
+          ) : (
+            <div className="small muted">Ideas</div>
+          )}
           {ideas?.map((idea, i) => (
             <div key={i} className="idea">
               <div className="small">{idea.idea}</div>
@@ -199,8 +215,8 @@ function Find({ editor, structure, target, setTarget, aiAvailable, attachAsset, 
           }}
         >
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search Openverse & Wikimedia Commons" />
-          <button type="submit" disabled={searching}>
-            {searching ? "…" : "Search"}
+          <button type="submit" disabled={searching} aria-label="Search">
+            {searching ? <Spinner /> : "Search"}
           </button>
         </form>
       )}
@@ -232,17 +248,44 @@ function Find({ editor, structure, target, setTarget, aiAvailable, attachAsset, 
         </div>
       )}
 
-      {results && results.length === 0 && <p className="muted small">No results.</p>}
+      {searching && (
+        <div className="loading-row small muted" role="status">
+          <Spinner /> Searching Openverse &amp; Wikimedia Commons for “{query}”…
+        </div>
+      )}
+      {searching && !results && (
+        <div className="grid" aria-hidden>
+          {Array.from({ length: 6 }, (_, i) => (
+            <div key={i} className="grid-item skeleton" />
+          ))}
+        </div>
+      )}
+      {!searching && results && results.length === 0 && <p className="muted small">No results.</p>}
       {results && (
-        <div className="grid">
+        <div className={searching ? "grid stale" : "grid"} aria-busy={searching}>
           {results.map((r) => (
-            <button key={`${r.provider}-${r.id}`} className="grid-item" onClick={() => setPreview(r)} title={r.title}>
-              <img src={r.thumbUrl} alt={r.title} loading="lazy" />
-            </button>
+            <ResultTile key={`${r.provider}-${r.id}`} result={r} onClick={() => setPreview(r)} />
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+/** A search result thumbnail. Provider thumbnail services sometimes fail: fall back to the full image, then drop the tile. */
+function ResultTile({ result, onClick }: { result: ImageResult; onClick: () => void }) {
+  const [src, setSrc] = useState(result.thumbUrl);
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    <button className="grid-item" onClick={onClick} title={result.title}>
+      <img
+        src={src}
+        alt={result.title}
+        loading="lazy"
+        onError={() => (src !== result.url ? setSrc(result.url) : setFailed(true))}
+      />
+    </button>
   );
 }
 

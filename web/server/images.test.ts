@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { assertPublicUrl, fetchImageBytes, isBlockedAddress, searchImages } from "./images.ts";
+import { assertPublicUrl, cleanTitle, fetchImageBytes, isBlockedAddress, searchImages } from "./images.ts";
 
 const publicDns = async () => [{ address: "93.184.215.14" }];
 
@@ -140,7 +140,7 @@ describe("searchImages", () => {
     // Huge originals are swapped for a 1920px rendition; small ones keep the original.
     expect(snow.url).toBe("https://up/thumb/1920px-Snow.jpg");
     expect(results[3].url).toBe("https://up/orig2.jpg");
-    expect(results[3].title).toBe("Second.jpg");
+    expect(results[3].title).toBe("Second");
   });
 
   it("returns the other provider's results when one fails", async () => {
@@ -159,4 +159,14 @@ describe("searchImages", () => {
     await searchImages("x", ["wikimedia"]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("cleanTitle", () => {
+  it.each([
+    ["<div class='fn'> Communications of Cholera.</div>", "Communications of Cholera."],
+    ["File:John Snow pub sign - geograph.org.uk - 1073800.jpg", "John Snow pub sign - geograph.org.uk - 1073800"],
+    ["Snow &amp; the pump.PNG", "Snow & the pump"],
+    ["  Map\n\nof  Soho ", "Map of Soho"],
+    [undefined, ""],
+  ])("%s → %s", (raw, clean) => expect(cleanTitle(raw)).toBe(clean));
 });

@@ -27,11 +27,11 @@ async function openverse(q: string): Promise<ImageResult[]> {
   return data.results.map((r) => ({
     provider: "openverse",
     id: r.id,
-    title: r.title ?? "",
+    title: cleanTitle(r.title),
     thumbUrl: r.thumbnail ?? r.url,
     url: r.url,
     pageUrl: r.foreign_landing_url,
-    creator: r.creator ?? undefined,
+    creator: stripHtml(r.creator),
     license: r.license ? `${r.license.toUpperCase()} ${r.license_version ?? ""}`.trim() : undefined,
     licenseUrl: r.license_url ?? undefined,
     width: r.width ?? undefined,
@@ -39,8 +39,21 @@ async function openverse(q: string): Promise<ImageResult[]> {
   }));
 }
 
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", "#39": "'", nbsp: " " };
+
 function stripHtml(s?: string) {
-  return s?.replace(/<[^>]*>/g, "").trim() || undefined;
+  return (
+    s
+      ?.replace(/<[^>]*>/g, "")
+      .replace(/&(amp|lt|gt|quot|apos|#39|nbsp);/g, (_, e: string) => ENTITIES[e])
+      .replace(/\s+/g, " ")
+      .trim() || undefined
+  );
+}
+
+/** Human title from provider metadata: no markup, no "File:" namespace, no file extension. */
+export function cleanTitle(raw?: string) {
+  return stripHtml(raw)?.replace(/^File:/i, "").replace(/\.(jpe?g|png|gif|webp|tiff?|svg)$/i, "").trim() ?? "";
 }
 
 async function wikimedia(q: string): Promise<ImageResult[]> {
@@ -71,7 +84,7 @@ async function wikimedia(q: string): Promise<ImageResult[]> {
       {
         provider: "wikimedia" as const,
         id: String(p.pageid),
-        title: stripHtml(meta.ObjectName?.value) ?? p.title.replace(/^File:/, ""),
+        title: cleanTitle(meta.ObjectName?.value) || cleanTitle(p.title),
         thumbUrl: info.thumburl ?? info.url,
         // Originals can be tens of megapixels; a 1920px rendition (a standard Commons width) is plenty for a screen.
         url: info.thumburl && info.width > 1920 ? info.thumburl.replace(/\/\d+px-/, "/1920px-") : info.url,

@@ -152,3 +152,12 @@ a { color: var(--accent); }
 .dictation-strip .interim { color: #8a8276; font-style: italic; font-family: Georgia, serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rec-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: #b3261e; animation: rec-pulse 1.2s ease-in-out infinite; }
 @keyframes rec-pulse { 50% { opacity: 0.3; } }
+
+/* Loading indicators */
+.spinner { display: inline-block; flex: none; width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: -2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-row { display: flex; align-items: center; gap: 8px; }
+.grid.stale { opacity: 0.4; pointer-events: none; transition: opacity 0.15s; }
+.grid-item.skeleton { background: linear-gradient(90deg, #eee 25%, #f6f4f0 50%, #eee 75%); background-size: 200% 100%; animation: shimmer 1.2s ease-in-out infinite; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .spinner, .grid-item.skeleton { animation-duration: 3s; } }
