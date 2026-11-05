@@ -1,0 +1,20 @@
+{
+  "name": "orator",
+  "private": true,
+  "description": "Script-first presentation authoring (web) and delivery (iPad).",
+  "workspaces": [
+    "web"
+  ],
+  "engines": {
+    "node": "26.x"
+  },
+  "scripts": {
+    "dev": "npm run dev -w web",
+    "build": "npm run build -w web",
+    "start": "node web/server/index.ts",
+    "test": "npm test -w web",
+    "typecheck": "npm run typecheck -w web",
+    "lint": "npm run lint -w web",
+    "check": "npm run typecheck && npm run lint && npm test"
+  }
+}

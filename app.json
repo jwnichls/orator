@@ -1,0 +1,22 @@
+{
+  "name": "Orator",
+  "description": "Script-first presentation authoring: write what you'll say, gather what they'll see.",
+  "buildpacks": [{ "url": "heroku/nodejs" }],
+  "env": {
+    "ANTHROPIC_API_KEY": {
+      "description": "Claude API key used by the server for writing help, outlines, the story coach and image ideas.",
+      "required": true
+    },
+    "APP_USERNAME": {
+      "description": "Basic-auth username guarding the whole app (recommended: the server proxies your Claude key).",
+      "required": false
+    },
+    "APP_PASSWORD": {
+      "description": "Basic-auth password; set together with APP_USERNAME.",
+      "required": false
+    }
+  },
+  "formation": {
+    "web": { "quantity": 1, "size": "basic" }
+  }
+}
